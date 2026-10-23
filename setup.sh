@@ -414,7 +414,136 @@ print(t['id'] if t else '')
             ]}" >/dev/null
       fi
     fi
+
+    # Indexer pubblici di base (nessuna credenziale richiesta, niente account):
+    # se Prowlarr non ne ha ancora nessuno, aggiunge un set di partenza ragionevole.
+    # 1337x ed EZTV vanno dietro FlareSolverr (stesso tag "flaresolverr" di sopra).
+    if [ -n "$PROWLARR_KEY" ] && [ "$(curl -s -H "X-Api-Key: $PROWLARR_KEY" "$PROWLARR_BASE/api/v1/indexer")" = "[]" ]; then
+      python3 - "$PROWLARR_BASE" "$PROWLARR_KEY" <<'PYEOF'
+import json, sys, urllib.request
+
+BASE, API_KEY = sys.argv[1], sys.argv[2]
+
+def call(method, path, data=None):
+    body = json.dumps(data).encode() if data is not None else None
+    req = urllib.request.Request(f"{BASE}{path}", data=body, method=method)
+    req.add_header("X-Api-Key", API_KEY)
+    if body:
+        req.add_header("Content-Type", "application/json")
+    with urllib.request.urlopen(req) as resp:
+        raw = resp.read()
+        return json.loads(raw) if raw else None
+
+tags = call("GET", "/tag")
+fs_tag = next((t["id"] for t in tags if t["label"] == "flaresolverr"), None)
+needs_flaresolverr = {"1337x", "eztv"}
+
+schema = call("GET", "/indexer/schema")
+by_def = {i["definitionName"]: i for i in schema}
+
+for defname in ["1337x", "thepiratebay", "limetorrents", "yts", "eztv"]:
+    i = by_def.get(defname)
+    if not i:
+        continue
+    i["appProfileId"] = 1
+    i["enable"] = True
+    for f in i["fields"]:
+        if f["name"] == "baseUrl" and i.get("indexerUrls"):
+            f["value"] = i["indexerUrls"][0]
+    if defname in needs_flaresolverr and fs_tag is not None:
+        i["tags"] = [fs_tag]
+    try:
+        call("POST", "/indexer", i)
+    except Exception as e:
+        print(f"  indexer {defname}: {e}", file=sys.stderr)
+PYEOF
+      c_ok "Indexer pubblici di base aggiunti a Prowlarr (1337x, The Pirate Bay, LimeTorrents, YTS, EZTV)"
+    fi
   fi
+
+  # Profili qualita' per lingua: ITA/ENG a 4K e Full HD, per Radarr e Sonarr.
+  # Nessuna credenziale coinvolta: sono Custom Format basati sulla lingua
+  # rilevata dal parser nativo di Sonarr/Radarr nel titolo della release, non
+  # su tag testuali. Ogni profilo accetta tutte le fonti a quella risoluzione
+  # (HDTV/WEB/Bluray/Remux) ma richiede che la lingua corrisponda.
+  for entry in "radarr:7878" "sonarr:8989"; do
+    app=${entry%%:*}; port=${entry#*:}
+    [ -f "$FAST/docker/$app/config.xml" ] || continue
+    APP_KEY=$(grep -oP '(?<=<ApiKey>)[^<]+' "$FAST/docker/$app/config.xml" 2>/dev/null || true)
+    [ -n "$APP_KEY" ] || continue
+    python3 - "http://localhost:$port/$app/api/v3" "$APP_KEY" <<'PYEOF'
+import json, sys, urllib.request
+
+BASE, API_KEY = sys.argv[1], sys.argv[2]
+
+def call(method, path, data=None):
+    body = json.dumps(data).encode() if data is not None else None
+    req = urllib.request.Request(f"{BASE}{path}", data=body, method=method)
+    req.add_header("X-Api-Key", API_KEY)
+    if body:
+        req.add_header("Content-Type", "application/json")
+    with urllib.request.urlopen(req) as resp:
+        raw = resp.read()
+        return json.loads(raw) if raw else None
+
+def ensure_format(name, lang_id):
+    for cf in call("GET", "/customformat"):
+        if cf["name"] == name:
+            return cf["id"]
+    cf = call("POST", "/customformat", {
+        "name": name, "includeCustomFormatWhenRenaming": False,
+        "specifications": [{
+            "name": name, "implementation": "LanguageSpecification",
+            "negate": False, "required": True,
+            "fields": [{"name": "value", "value": lang_id}, {"name": "exceptLanguage", "value": False}],
+        }],
+    })
+    return cf["id"]
+
+def item_resolution(it):
+    return it["quality"]["resolution"] if "quality" in it else it["items"][0]["quality"]["resolution"]
+
+PRIORITY = ["remux", "bluray", "web", "hdtv", "raw-hd"]
+
+def item_priority(it):
+    name = (it.get("name") or it["quality"]["name"]).lower()
+    for idx, key in enumerate(PRIORITY):
+        if key in name:
+            return idx
+    return len(PRIORITY)
+
+def ensure_profile(name, resolution, format_id):
+    if any(p["name"] == name for p in call("GET", "/qualityprofile")):
+        return
+    schema = call("GET", "/qualityprofile/schema")
+    matching = [it for it in schema["items"] if item_resolution(it) == resolution]
+    if not matching:
+        return
+    for it in schema["items"]:
+        it["allowed"] = it in matching
+    cutoff_item = sorted(matching, key=item_priority)[0]
+    all_formats = call("GET", "/customformat")
+    schema["name"] = name
+    schema["upgradeAllowed"] = True
+    schema["cutoff"] = cutoff_item.get("id") or cutoff_item["quality"]["id"]
+    schema["formatItems"] = [
+        {"format": cf["id"], "name": cf["name"], "score": 100 if cf["id"] == format_id else 0}
+        for cf in all_formats
+    ]
+    schema["minFormatScore"] = 100
+    schema["cutoffFormatScore"] = 100
+    schema["minUpgradeFormatScore"] = 1
+    call("POST", "/qualityprofile", schema)
+
+it_id = ensure_format("Italian", 5)
+en_id = ensure_format("English", 1)
+ensure_profile("ITA 4K", 2160, it_id)
+ensure_profile("ITA Full HD", 1080, it_id)
+ensure_profile("ENG 4K", 2160, en_id)
+ensure_profile("ENG Full HD", 1080, en_id)
+PYEOF
+  done
+  c_ok "Profili qualita' ITA/ENG 4K + Full HD creati su Radarr e Sonarr"
 
   # Bazarr: sottotitoli per Radarr/Sonarr, lingua ita+eng sempre entrambe (nessun
   # cutoff: con un cutoff impostato Bazarr si ferma alla prima lingua trovata e

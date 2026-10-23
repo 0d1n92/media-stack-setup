@@ -63,6 +63,12 @@ Lo script passa `/dev/dri` al container Plex per il Quick Sync Intel, se present
 - **Max transcode simultanei** = un numero basso (2 su una CPU a 8 thread è un buon punto di partenza)
 - **Transcoder temp directory** su un tmpfs (RAM) se hai margine di memoria, per non consumare scritture sull'SSD
 
+## Indexer pubblici e profili qualità, già pronti
+
+Se Prowlarr non ha ancora nessun indexer configurato, lo script ne aggiunge un set di partenza (1337x, The Pirate Bay, LimeTorrents, YTS, EZTV) — tutti pubblici, nessun account/credenziale richiesta. Puoi aggiungerne altri (anche privati, con le tue credenziali) in qualunque momento da Prowlarr, questo è solo un punto di partenza.
+
+Crea anche 4 profili qualità su Radarr e Sonarr — **ITA 4K**, **ITA Full HD**, **ENG 4K**, **ENG Full HD** — basati sulla lingua rilevata nel titolo della release (non su tag testuali: usa il parser nativo di Sonarr/Radarr), così puoi assegnare a ogni film/serie la combinazione risoluzione+lingua che vuoi.
+
 ## Indexer protetti da Cloudflare (es. 1337x)
 
 FlareSolverr è già configurato come Indexer Proxy in Prowlarr con il tag `flaresolverr`. Quando aggiungi un indexer che richiede FlareSolverr (Prowlarr lo segnala nella pagina dell'indexer), devi assegnargli lo stesso tag `flaresolverr` in "Add Indexer" — senza quel tag condiviso, Prowlarr non instrada le richieste tramite il proxy nonostante sia configurato.

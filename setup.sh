@@ -30,8 +30,18 @@ c_ok "Utente: $RUN_USER (UID $PUID, GID $PGID)"
 
 c_info "Installo pacchetti base..."
 apt-get update -qq
-apt-get install -y -qq curl ca-certificates parted >/dev/null
+apt-get install -y -qq curl ca-certificates parted avahi-daemon >/dev/null
+systemctl enable --now avahi-daemon >/dev/null 2>&1 || true
 c_ok "Pacchetti base installati"
+
+# Hostname fisso "mediaserver": con avahi-daemon sopra, rende raggiungibile
+# http://mediaserver.local/ dalla rete locale senza dover ricordare l'IP
+# (richiede supporto mDNS sul dispositivo: Mac/iPhone/Android/Linux di serie,
+# Windows a volte no - in quel caso usa l'IP mostrato a fine script).
+if [ "$(hostname)" != "mediaserver" ]; then
+  hostnamectl set-hostname mediaserver
+  c_ok "Hostname impostato a 'mediaserver' (http://mediaserver.local/)"
+fi
 
 # --- 1. SSD ------------------------------------------------------------------
 dev_by_label() { blkid -L "$1" 2>/dev/null || true; }
@@ -614,7 +624,7 @@ echo
 echo "=================================================================="
 echo " FATTO! Il media server e' attivo."
 echo "=================================================================="
-echo " Dashboard:     http://$IP/              utente: ${DASH_USER:-?}   password: ${DASH_PASS:-vedi $STACK_DIR/.env.credentials}"
+echo " Dashboard:     http://$IP/  (o http://mediaserver.local/)   utente: ${DASH_USER:-?}   password: ${DASH_PASS:-vedi $STACK_DIR/.env.credentials}"
 echo "                Stesso login per tutto quello che passa dal reverse proxy (sotto)."
 echo " Plex:          http://$IP:32400/web   (account plex.tv separato, non c'entra col login sopra)"
 echo " qBittorrent:   http://$IP/qbittorrent/   (nessun login extra se apri da qui; su :8080 diretto serve ancora quello suo)"

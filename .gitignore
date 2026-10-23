@@ -1,0 +1,10 @@
+.DS_Store
+.history/
+.lh/
+
+# config live dei servizi: contengono API key, token, password hash — mai committarle
+backups/
+*.env
+.env.*
+qBittorrent.conf.live
+categories.json.live

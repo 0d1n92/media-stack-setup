@@ -1,0 +1,117 @@
+<!doctype html>
+<html lang="it">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="theme-color" content="#111318">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-title" content="Media Server">
+<title>Media Server</title>
+<style>
+  :root {
+    --bg: #f4f5f7; --card: #ffffff; --text: #16181d; --muted: #6b7280;
+    --border: #e4e6eb; --ok: #16a34a; --ko: #dc2626; --wait: #a1a1aa;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root { --bg: #111318; --card: #1b1e25; --text: #eceef2; --muted: #9aa1ad; --border: #2a2e37; }
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0; min-height: 100vh; background: var(--bg); color: var(--text);
+    font: 16px/1.4 -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+    padding: 32px 16px;
+  }
+  main { max-width: 760px; margin: 0 auto; }
+  header { display: flex; align-items: baseline; justify-content: space-between; margin-bottom: 24px; gap: 12px; flex-wrap: wrap; }
+  h1 { font-size: 26px; margin: 0; letter-spacing: -0.02em; }
+  .host { color: var(--muted); font-size: 14px; }
+  .grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(220px, 1fr)); gap: 14px; }
+  a.card {
+    display: flex; gap: 14px; align-items: center; padding: 18px;
+    background: var(--card); border: 1px solid var(--border); border-radius: 14px;
+    color: inherit; text-decoration: none; transition: transform .12s, border-color .12s;
+  }
+  a.card:hover { transform: translateY(-2px); border-color: var(--accent); }
+  a.card:active { transform: scale(.98); }
+  .icon {
+    flex: none; width: 46px; height: 46px; border-radius: 12px; display: grid; place-items: center;
+    background: var(--accent); color: #fff; font-weight: 700; font-size: 20px;
+  }
+  .info { min-width: 0; flex: 1; }
+  .name { font-weight: 600; }
+  .desc { color: var(--muted); font-size: 13px; }
+  .status { display: flex; align-items: center; gap: 6px; font-size: 12px; color: var(--muted); margin-top: 4px; }
+  .dot { width: 8px; height: 8px; border-radius: 50%; background: var(--wait); }
+  .on .dot { background: var(--ok); }
+  .off .dot { background: var(--ko); }
+  footer { margin-top: 28px; color: var(--muted); font-size: 13px; text-align: center; }
+</style>
+</head>
+<body>
+<main>
+  <header>
+    <h1>Media Server</h1>
+    <span class="host" id="host"></span>
+  </header>
+  <div class="grid" id="grid"></div>
+  <footer>Lo stato si aggiorna ogni 30 secondi</footer>
+</main>
+
+<script>
+  // Il nome host della pagina (IP o mediaserver.local) viene riusato per tutti i servizi
+  const HOST = location.hostname || "mediaserver.local";
+  // Radarr/Sonarr/Prowlarr/qBittorrent passano dal reverse proxy nginx (stessa porta 80
+  // della dashboard, nessuna porta da ricordare); Plex resta sulla sua porta diretta.
+  const SERVICES = [
+    { name: "Overseerr",   desc: "Richiedi film e serie",      port: 5055,  path: "/",              letter: "O", color: "#4f46e5" },
+    { name: "Plex",        desc: "Guarda i film",              port: 32400, path: "/web",          letter: "P", color: "#e5a00d" },
+    { name: "Radarr",      desc: "Cerca e aggiungi film",      port: null,  path: "/radarr/",       letter: "R", color: "#f0b429" },
+    { name: "Sonarr",      desc: "Cerca e aggiungi serie TV",  port: null,  path: "/sonarr/",       letter: "S", color: "#3fb983" },
+    { name: "qBittorrent", desc: "Gestione download",          port: null,  path: "/qbittorrent/",  letter: "q", color: "#2f67ba" },
+    { name: "Prowlarr",    desc: "Fonti di ricerca",           port: null,  path: "/prowlarr/",     letter: "P", color: "#e66001" },
+    { name: "Bazarr",      desc: "Sottotitoli",                port: null,  path: "/bazarr/",       letter: "B", color: "#9b59b6" },
+    { name: "FlareSolverr", desc: "Bypass Cloudflare indexer", port: 8191,  path: "/",              letter: "F", color: "#7c3aed" },
+    { name: "File",         desc: "Sfoglia e carica file",      port: null,  path: "/files/",        letter: "F", color: "#0ea5e9" },
+  ];
+
+  document.getElementById("host").textContent = HOST;
+  const grid = document.getElementById("grid");
+
+  for (const s of SERVICES) {
+    s.url = `http://${HOST}${s.port ? ":" + s.port : ""}${s.path}`;
+    const a = document.createElement("a");
+    a.className = "card";
+    a.href = s.url;
+    a.style.setProperty("--accent", s.color);
+    a.innerHTML = `
+      <div class="icon">${s.letter}</div>
+      <div class="info">
+        <div class="name">${s.name}</div>
+        <div class="desc">${s.desc}</div>
+        <div class="status"><span class="dot"></span><span class="label">controllo…</span></div>
+      </div>`;
+    s.el = a;
+    grid.appendChild(a);
+  }
+
+  async function check(s) {
+    const ctrl = new AbortController();
+    const t = setTimeout(() => ctrl.abort(), 4000);
+    try {
+      // no-cors: la risposta e' opaca ma la richiesta riesce solo se il servizio risponde
+      await fetch(s.url, { mode: "no-cors", cache: "no-store", signal: ctrl.signal });
+      set(s, true);
+    } catch { set(s, false); }
+    finally { clearTimeout(t); }
+  }
+  function set(s, on) {
+    s.el.classList.toggle("on", on);
+    s.el.classList.toggle("off", !on);
+    s.el.querySelector(".label").textContent = on ? "attivo" : "non raggiungibile";
+  }
+  function refresh() { SERVICES.forEach(check); }
+  refresh();
+  setInterval(refresh, 30000);
+</script>
+</body>
+</html>

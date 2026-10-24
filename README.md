@@ -1,140 +1,140 @@
 # Media Server
 
-🇮🇹 Italiano | [🇬🇧 English](README.en.md)
+🇬🇧 English | [🇮🇹 Italiano](README.it.md)
 
-Il tuo "Netflix privato": un server a casa che scarica film e serie TV e te li fa guardare da Plex, con una pagina per cercare e richiedere titoli senza dover capire nulla di informatica.
+Your own "private Netflix": a home server that downloads movies and TV shows and lets you watch them on Plex, with a page to search and request titles without knowing anything about computers.
 
-## Come si usa (nessuna competenza tecnica richiesta)
+## How to use it (no technical skills required)
 
-Chi ha installato il server (vedi sezione "Installazione" più sotto) ti darà due indirizzi da salvare nei preferiti del browser. Puoi usare `mediaserver.local` al posto dell'IP (più facile da ricordare, e non cambia mai) — su Mac/iPhone/Android/Linux funziona di serie; su alcuni PC Windows potrebbe non funzionare, in quel caso usa l'IP mostrato dall'installazione:
+Whoever set up the server (see the "Installation" section below) will give you two addresses to bookmark in your browser. You can use `mediaserver.local` instead of the IP (easier to remember, and it never changes) — it works out of the box on Mac/iPhone/Android/Linux; on some Windows PCs it might not work, in which case use the IP shown during installation:
 
-- **La pagina principale** (es. `http://mediaserver.local/` o `http://192.168.1.50/`): da lì apri la dashboard con lo stato di tutti i servizi. Ti chiederà un utente e una password — quelli impostati durante l'installazione.
-- **La pagina per richiedere film/serie** (Overseerr, es. `http://mediaserver.local:5055/` o `http://192.168.1.50:5055/`): cerchi un titolo, clicchi "richiedi", e il server inizia a scaricarlo da solo. Login con l'account Plex.
+- **The main page** (e.g. `http://mediaserver.local/` or `http://192.168.1.50/`): from there you open the dashboard with the status of all services. It will ask for a username and password — the ones set during installation.
+- **The page to request movies/shows** (Overseerr, e.g. `http://mediaserver.local:5055/` or `http://192.168.1.50:5055/`): search for a title, click "request", and the server starts downloading it on its own. Log in with your Plex account.
 
-Per **guardare** quello che hai richiesto, apri l'app Plex (su TV, telefono, computer) e fai login con il tuo account plex.tv — appena il download e l'organizzazione del file sono finiti, il titolo compare nella libreria.
+To **watch** what you requested, open the Plex app (on TV, phone, computer) and log in with your plex.tv account — as soon as the download and file organization are done, the title appears in the library.
 
-I sottotitoli (italiano e inglese) vengono scaricati e sincronizzati in automatico, non serve cercarli a mano.
+Subtitles (Italian and English) are downloaded and synced automatically, no need to look for them by hand.
 
-Se non sei sulla stessa rete Wi-Fi di casa (sei fuori), serve l'app **Tailscale** installata e collegata con lo stesso account usato sul server: senza, gli indirizzi sopra non si raprono da fuori casa.
+If you're not on the same home Wi-Fi network (you're out), you need the **Tailscale** app installed and signed in with the same account used on the server: without it, the addresses above won't open from outside home.
 
-Se un indirizzo smette di funzionare, chiedi a chi ha installato il server: probabilmente il router ha cambiato l'indirizzo della macchina.
+If an address stops working, ask whoever set up the server: the router probably changed the machine's address.
 
 ---
 
-## Installazione (per chi gestisce il server)
+## Installation (for whoever manages the server)
 
-Le sezioni seguenti sono per chi configura e mantiene il server (richiede accesso SSH/terminale alla macchina).
+The following sections are for whoever configures and maintains the server (requires SSH/terminal access to the machine).
 
-### Requisiti
+### Requirements
 
-- Un computer dedicato (non il tuo PC di tutti i giorni) con Debian/Ubuntu Server, anche senza interfaccia grafica
-- GPU Intel con Quick Sync (consigliata ma non obbligatoria: velocizza la conversione video, "transcoding", di Plex — senza, Plex usa la CPU)
-- Uno o più dischi USB (anche di marche/dimensioni diverse) per conservare film e serie
-- Accesso SSH e `sudo` sulla macchina (l'utenza amministratore)
+- A dedicated computer (not your everyday PC) with Debian/Ubuntu Server, even headless
+- Intel GPU with Quick Sync (recommended but not required: speeds up Plex's video conversion, "transcoding" — without it, Plex uses the CPU)
+- One or more USB disks (even different brands/sizes) to store movies and shows
+- SSH and `sudo` access on the machine (admin account)
 
-### Lanciare l'installazione
+### Running the installation
 
 ```bash
-git clone <url-di-questo-repo>
+git clone <this-repo-url>
 cd media-stack-setup
 sudo bash setup.sh
 ```
 
-Lo script (`setup.sh`) fa tutto da solo: prepara i dischi, installa Docker (il programma che fa girare ciascun servizio in un suo "contenitore" isolato) e collega i vari servizi tra loro. Si può rilanciare quante volte vuoi — salta i passi già fatti, utile se si interrompe o se in futuro aggiungi un disco.
+The script (`setup.sh`) does everything on its own: prepares the disks, installs Docker (the program that runs each service in its own isolated "container") and connects the various services to each other. It can be re-run as many times as you want — it skips steps already done, which is useful if it gets interrupted or if you add a disk later.
 
-Durante l'esecuzione chiede:
-- quanti dischi usare per la libreria film
-- se usare un disco separato per configurazioni/download o una cartella del primo disco
-- username/password per l'accesso al server (vale per dashboard, Radarr, Sonarr, Prowlarr, Bazarr, qBittorrent)
-- se installare anche Radarr/Sonarr/Prowlarr/Bazarr/FlareSolverr (i programmi che cercano e organizzano i download — vedi sotto cosa fa ciascuno)
-- claim token Plex (opzionale, per collegare subito l'account Plex)
-- se installare Tailscale (per l'accesso da fuori casa)
+During execution it asks:
+- how many disks to use for the movie library
+- whether to use a separate disk for config/downloads or a folder on the first disk
+- username/password for server access (applies to the dashboard, Radarr, Sonarr, Prowlarr, Bazarr, qBittorrent)
+- whether to also install Radarr/Sonarr/Prowlarr/Bazarr/FlareSolverr (the programs that search for and organize downloads — see below what each one does)
+- Plex claim token (optional, to link the Plex account right away)
+- whether to install Tailscale (for access from outside home)
 
-Alla fine stampa un riepilogo con tutti gli indirizzi e le password da consegnare a chi userà il server.
+At the end it prints a summary with all the addresses and passwords to hand over to whoever will use the server.
 
-### Indirizzo del server
+### Server address
 
-Lo script imposta l'hostname della macchina a `mediaserver` e installa `avahi-daemon` (mDNS), così il server è raggiungibile come `http://mediaserver.local/` da qualunque dispositivo sulla stessa rete che supporti mDNS (Mac, iPhone, Android, Linux di serie; su Windows a volte serve installare Bonjour o non funziona). Funziona sempre, anche se il router cambia l'IP della macchina.
+The script sets the machine's hostname to `mediaserver` and installs `avahi-daemon` (mDNS), so the server is reachable as `http://mediaserver.local/` from any device on the same network that supports mDNS (Mac, iPhone, Android, Linux out of the box; on Windows you sometimes need to install Bonjour, or it won't work). It always works, even if the router changes the machine's IP.
 
-Il riepilogo finale di `setup.sh` mostra anche l'IP diretto (es. `http://192.168.1.50/`) come alternativa/fallback. Se preferisci usare solo quello, può cambiare in futuro: in quel caso rilancia `sudo bash setup.sh` per leggere il nuovo IP, oppure riserva un IP fisso al server dal pannello del router ("DHCP reservation"/"IP statico").
+The final summary from `setup.sh` also shows the direct IP (e.g. `http://192.168.1.50/`) as an alternative/fallback. If you'd rather use only that, it can change in the future: in that case re-run `sudo bash setup.sh` to read the new IP, or reserve a fixed IP for the server from the router's panel ("DHCP reservation"/"static IP").
 
-Per l'accesso da fuori casa, Tailscale (se installato) crea un secondo IP valido ovunque, mostrato nello stesso riepilogo.
+For access from outside home, Tailscale (if installed) creates a second IP valid anywhere, shown in the same summary.
 
-### A cosa serve ciascun servizio
+### What each service does
 
-- **Plex**: dove si guardano film e serie.
-- **Overseerr**: dove si cercano e richiedono nuovi titoli (pensata per chi guarda, non per chi amministra).
-- **Radarr / Sonarr**: ricevono le richieste e cercano il file da scaricare, uno per i film e uno per le serie.
-- **Prowlarr**: il motore di ricerca condiviso da Radarr e Sonarr (gli "indexer", cioè le fonti dove cercare, si configurano qui una volta).
-- **Bazarr**: cerca e sincronizza i sottotitoli per quello che Radarr/Sonarr hanno scaricato.
-- **qBittorrent**: scarica materialmente i file.
-- **FlareSolverr**: serve solo per gli indexer protetti da Cloudflare (es. 1337x) — aiuta Prowlarr a superare quella protezione.
-- **Dashboard**: la pagina di partenza con lo stato di tutti questi servizi.
+- **Plex**: where you watch movies and shows.
+- **Overseerr**: where you search for and request new titles (meant for viewers, not admins).
+- **Radarr / Sonarr**: receive the requests and search for the file to download, one for movies and one for shows.
+- **Prowlarr**: the search engine shared by Radarr and Sonarr (the "indexers", i.e. the sources to search, are configured here once).
+- **Bazarr**: searches for and syncs subtitles for what Radarr/Sonarr have downloaded.
+- **qBittorrent**: actually downloads the files.
+- **FlareSolverr**: only needed for indexers protected by Cloudflare (e.g. 1337x) — helps Prowlarr get past that protection.
+- **Dashboard**: the landing page with the status of all these services.
 
-### Struttura del progetto
+### Project structure
 
 ```
-setup.sh                   orchestratore: dischi, Docker, copia i file sotto in /opt/mediaserver
-docker-compose.yml         definizione dei servizi
-nginx/default.conf         reverse proxy + login unico (HTTP Basic)
-dashboard/index.html       pagina con lo stato dei servizi
-qbittorrent/               config iniziale di qBittorrent (salvata solo al primo avvio)
-add-mac-key.sh             aggiunge una chiave pubblica SSH all'utente corrente
+setup.sh                   orchestrator: disks, Docker, copies the files below to /opt/mediaserver
+docker-compose.yml         service definitions
+nginx/default.conf         reverse proxy + single login (HTTP Basic)
+dashboard/index.html       page showing service status
+qbittorrent/               qBittorrent initial config (saved only on first boot)
+add-mac-key.sh             adds an SSH public key to the current user
 ```
 
-Tutte le config *live* dei servizi (API key, token Plex, hash password) restano
-solo sul server in `/opt/mediaserver/data/docker/`, mai in questo repo: non
-committare mai quella cartella o i file `.env`/`.env.credentials`.
+All *live* service configs (API keys, Plex token, password hashes) stay
+only on the server under `/opt/mediaserver/data/docker/`, never in this repo:
+never commit that folder or the `.env`/`.env.credentials` files.
 
 ### Login
 
-C'è **un solo login** per tutto quello che passa dal reverse proxy nginx (dashboard, Radarr, Sonarr, Prowlarr, Bazarr, qBittorrent via `/qbittorrent/`): le credenziali si impostano al primo avvio e vengono salvate in `/opt/mediaserver/.env.credentials` sulla macchina.
+There is **a single login** for everything that goes through the nginx reverse proxy (dashboard, Radarr, Sonarr, Prowlarr, Bazarr, qBittorrent via `/qbittorrent/`): the credentials are set on first run and saved in `/opt/mediaserver/.env.credentials` on the machine.
 
-**Plex resta separato**: usa il tuo account plex.tv, non il login del reverse proxy — per scelta, dato che è legato alla tua identità Plex vera.
+**Plex stays separate**: it uses your plex.tv account, not the reverse proxy login — by design, since it's tied to your real Plex identity.
 
-qBittorrent accetta connessioni senza password solo se arrivano dal reverse proxy (stessa rete Docker); se apri la sua porta diretta (`:8080`) ti chiede comunque le sue credenziali.
+qBittorrent accepts connections without a password only if they come from the reverse proxy (same Docker network); if you open its direct port (`:8080`) it still asks for its own credentials.
 
-### Più dischi per la libreria film
+### Multiple disks for the movie library
 
-Se in futuro aggiungi un disco (es. un HDD più grande), rilancia `sudo bash setup.sh`: lo script riconosce i dischi già montati e ti chiede solo di formattare quello nuovo. I dischi aggiuntivi vengono montati su `/mnt/media2`, `/mnt/media3`, ecc., e collegati automaticamente ai container tramite `docker-compose.override.yml` (generato in automatico, non va editato a mano).
+If you add a disk in the future (e.g. a bigger HDD), re-run `sudo bash setup.sh`: the script recognizes disks already mounted and only asks you to format the new one. Additional disks are mounted at `/mnt/media2`, `/mnt/media3`, etc., and automatically connected to the containers via `docker-compose.override.yml` (generated automatically, don't edit it by hand).
 
-In Plex, dopo, aggiungi `/movies2`, `/movies3`... come cartelle aggiuntive della stessa libreria "Film" — i file sui dischi extra funzionano allo stesso modo, basta aggiungere la cartella.
+In Plex, afterwards, add `/movies2`, `/movies3`... as extra folders of the same "Movies" library — files on the extra disks work the same way, just add the folder.
 
 ### Transcoding
 
-Lo script passa `/dev/dri` al container Plex per il Quick Sync Intel, se presente sull'hardware. Il transcoding hardware è però una funzione **Plex Pass**: senza un abbonamento attivo sull'account plex.tv collegato, l'opzione "Use hardware acceleration when available" non compare nemmeno nelle impostazioni. Senza Plex Pass, Plex fa transcoding software sulla CPU — se il tuo hardware è modesto, vale la pena impostare in Plex:
-- **Transcoder quality = Automatic** (non "Make my CPU hurt", che forza la massima qualità anche quando la CPU non riesce a starci dietro in tempo reale)
-- **Max transcode simultanei** = un numero basso (2 su una CPU a 8 thread è un buon punto di partenza)
-- **Transcoder temp directory** su un tmpfs (RAM) se hai margine di memoria, per non consumare scritture sull'SSD
+The script passes `/dev/dri` to the Plex container for Intel Quick Sync, if present on the hardware. Hardware transcoding is however a **Plex Pass** feature: without an active subscription on the linked plex.tv account, the "Use hardware acceleration when available" option doesn't even show up in settings. Without Plex Pass, Plex does software transcoding on the CPU — if your hardware is modest, it's worth setting in Plex:
+- **Transcoder quality = Automatic** (not "Make my CPU hurt", which forces maximum quality even when the CPU can't keep up in real time)
+- **Max simultaneous transcodes** = a low number (2 on an 8-thread CPU is a good starting point)
+- **Transcoder temp directory** on a tmpfs (RAM) if you have memory to spare, to avoid wearing out the SSD with writes
 
-### Indexer pubblici e profili qualità, già pronti
+### Public indexers and quality profiles, ready to go
 
-Se Prowlarr non ha ancora nessun indexer configurato, lo script ne aggiunge un set di partenza (1337x, The Pirate Bay, LimeTorrents, YTS, EZTV) — tutti pubblici, nessun account/credenziale richiesta. Puoi aggiungerne altri (anche privati, con le tue credenziali) in qualunque momento da Prowlarr, questo è solo un punto di partenza.
+If Prowlarr doesn't have any indexer configured yet, the script adds a starter set (1337x, The Pirate Bay, LimeTorrents, YTS, EZTV) — all public, no account/credentials required. You can add others (even private ones, with your own credentials) at any time from Prowlarr, this is just a starting point.
 
-Crea anche 4 profili qualità su Radarr e Sonarr — **ITA 4K**, **ITA Full HD**, **ENG 4K**, **ENG Full HD** — basati sulla lingua rilevata nel titolo della release (non su tag testuali: usa il parser nativo di Sonarr/Radarr), così puoi assegnare a ogni film/serie la combinazione risoluzione+lingua che vuoi.
+It also creates 4 quality profiles on Radarr and Sonarr — **ITA 4K**, **ITA Full HD**, **ENG 4K**, **ENG Full HD** — based on the language detected in the release title (not text tags: it uses Sonarr/Radarr's native parser), so you can assign each movie/show the resolution+language combo you want.
 
-### Indexer protetti da Cloudflare (es. 1337x)
+### Indexers protected by Cloudflare (e.g. 1337x)
 
-FlareSolverr è già configurato come Indexer Proxy in Prowlarr con il tag `flaresolverr`. Quando aggiungi un indexer che richiede FlareSolverr (Prowlarr lo segnala nella pagina dell'indexer), devi assegnargli lo stesso tag `flaresolverr` in "Add Indexer" — senza quel tag condiviso, Prowlarr non instrada le richieste tramite il proxy nonostante sia configurato.
+FlareSolverr is already configured as an Indexer Proxy in Prowlarr with the `flaresolverr` tag. When you add an indexer that requires FlareSolverr (Prowlarr flags this on the indexer's page), you need to assign it the same `flaresolverr` tag in "Add Indexer" — without that shared tag, Prowlarr won't route requests through the proxy even though it's configured.
 
-### Sottotitoli (Bazarr)
+### Subtitles (Bazarr)
 
-Bazarr è collegato a Radarr e Sonarr e cerca sottotitoli in **italiano e inglese per ogni film/episodio** (profilo lingua `ita`, senza "cutoff": a differenza del comportamento di default, non si ferma alla prima lingua trovata, li scarica sempre entrambi). Serve un provider di sottotitoli configurato in Impostazioni > Provider (es. OpenSubtitles.com, account gratuito).
+Bazarr is connected to Radarr and Sonarr and searches for subtitles in **Italian and English for every movie/episode** (language profile `ita`, with no "cutoff": unlike the default behavior, it doesn't stop at the first language found, it always downloads both). You need a subtitle provider configured under Settings > Providers (e.g. OpenSubtitles.com, free account).
 
-**Sync automatico**: ogni sottotitolo scaricato viene risincronizzato in automatico sull'audio del video (`ffsubsync`, Impostazioni > Sottotitoli > "Use Subsync") — utile quando il provider trova solo un match testuale e non un hash esatto sul file. Per un sottotitolo già scaricato prima di questa opzione, va risincronizzato a mano una volta (pagina del film/episodio in Bazarr > icona di sync sul sottotitolo).
+**Automatic sync**: every downloaded subtitle is automatically re-synced to the video's audio (`ffsubsync`, Settings > Subtitles > "Use Subsync") — useful when the provider only finds a text match and not an exact file hash. For a subtitle downloaded before this option existed, it needs to be synced by hand once (movie/episode page in Bazarr > sync icon on the subtitle).
 
-### Richiesta film/serie (Overseerr)
+### Requesting movies/shows (Overseerr)
 
-Overseerr (`http://<IP>:5055/`) è un'interfaccia di ricerca/richiesta: chi guarda cerca un titolo nel catalogo TMDB (con filtri per genere, studio, anno, voto, oltre a caroselli "di tendenza"/"in arrivo"), lo richiede con un click, e Overseerr lo manda in automatico a Radarr/Sonarr — senza dare accesso diretto a Radarr/Sonarr a chi non deve gestirne la configurazione.
+Overseerr (`http://<IP>:5055/`) is a search/request interface: viewers search for a title in the TMDB catalog (with filters for genre, studio, year, rating, plus "trending"/"upcoming" carousels), request it with one click, and Overseerr automatically sends it to Radarr/Sonarr — without giving direct access to Radarr/Sonarr to people who shouldn't manage their configuration.
 
-**Non passa dal reverse proxy nginx** (porta diretta 5055, niente login unico): a differenza di Radarr/Sonarr/Prowlarr/Bazarr, Overseerr non supporta un sub-path dietro reverse proxy per via di come Next.js gestisce gli asset. Primo accesso: wizard di setup nel browser, login con l'account Plex (stesso account del server Plex), poi collega Radarr/Sonarr (Impostazioni > Servizi) usando le API key che trovi nei rispettivi `config.xml`.
+**Doesn't go through the nginx reverse proxy** (direct port 5055, no single login): unlike Radarr/Sonarr/Prowlarr/Bazarr, Overseerr doesn't support running under a sub-path behind a reverse proxy because of how Next.js handles assets. First access: setup wizard in the browser, log in with the Plex account (same account as the Plex server), then connect Radarr/Sonarr (Settings > Services) using the API keys found in their respective `config.xml`.
 
-### Hardlink, non copie
+### Hardlinks, not copies
 
-Radarr e Sonarr sono configurati per usare hardlink invece di copiare i file in fase di import: lo stesso file scaricato da qBittorrent e quello nella cartella organizzata della libreria sono lo stesso dato su disco (zero spazio raddoppiato), a patto che download e libreria siano sullo stesso disco. Se aggiungi un secondo disco e scarichi qualcosa destinato a finire lì, assicurati che la categoria/cartella di download usata da qBittorrent sia sullo stesso disco di destinazione, altrimenti Radarr/Sonarr copiano invece di collegare.
+Radarr and Sonarr are configured to use hardlinks instead of copying files during import: the file downloaded by qBittorrent and the one in the organized library folder are the same data on disk (no doubled space), as long as downloads and the library are on the same disk. If you add a second disk and download something meant to end up there, make sure the download category/folder used by qBittorrent is on the same destination disk, otherwise Radarr/Sonarr will copy instead of linking.
 
-### Affidabilità
+### Reliability
 
-- **`live-restore` su Docker**: se il demone Docker si riavvia (aggiornamento, crash, comando lanciato a mano), i container restano in esecuzione invece di fermarsi e aspettare un `docker compose up -d` manuale.
-- **Niente swap su disco esterno**: se un disco USB si scollega e il kernel ha pagine di memoria lì sopra, il sistema può bloccarsi. La swap resta solo sul disco di sistema.
-- **Config su disco di sistema, non su disco esterno**: le config di Plex/Radarr/Sonarr/qBittorrent vivono su `/opt/mediaserver/data` (disco interno), non su un'unità removibile — se quella si scollega, perdi solo l'accesso alla libreria film (ri-scaricabile), non le config/cronologia di tutto lo stack.
+- **Docker's `live-restore`**: if the Docker daemon restarts (update, crash, manual command), containers stay running instead of stopping and waiting for a manual `docker compose up -d`.
+- **No swap on external disks**: if a USB disk disconnects while the kernel has memory pages on it, the system can hang. Swap stays only on the system disk.
+- **Config on the system disk, not the external one**: Plex/Radarr/Sonarr/qBittorrent config lives on `/opt/mediaserver/data` (internal disk), not on a removable drive — if that disconnects, you only lose access to the movie library (re-downloadable), not the config/history of the whole stack.

@@ -120,11 +120,11 @@ c_ok "Dischi montati: ${MEDIA_MOUNTS[*]} (rimontati in automatico al riavvio)"
 # sistema (gia' creata dall'installer di Ubuntu).
 
 # --- 3. Cartelle -------------------------------------------------------------
-mkdir -p "$FAST"/docker/{plex,qbittorrent/qBittorrent,radarr,prowlarr,sonarr,bazarr,overseerr,filebrowser} \
+mkdir -p "$FAST"/docker/{plex,qbittorrent/qBittorrent,radarr,prowlarr,sonarr,lidarr,bazarr,overseerr,filebrowser,gluetun} \
          "$FAST"/torrents/incomplete \
          "$STACK_DIR" "$STACK_DIR/dashboard" "$STACK_DIR/nginx"
 for m in "${MEDIA_MOUNTS[@]}"; do
-  mkdir -p "$m"/movies "$m"/tv "$m"/downloads/radarr "$m"/downloads/sonarr "$m"/downloads/manual
+  mkdir -p "$m"/movies "$m"/tv "$m"/music "$m"/downloads/radarr "$m"/downloads/sonarr "$m"/downloads/lidarr "$m"/downloads/manual
   chown -R "$PUID:$PGID" "$m"
 done
 chown -R "$PUID:$PGID" "$FAST/docker" "$FAST/torrents"
@@ -190,17 +190,75 @@ else
 fi
 c_ok "Dashboard e reverse proxy copiati ($STACK_DIR)"
 
+# --- 5c. Cosa installare ------------------------------------------------------
+PROFILE_ARGS=()
+if [[ "$(ask "Installare anche Radarr + Sonarr + Prowlarr + Bazarr + Overseerr + FlareSolverr? (S/n):")" =~ ^[nN] ]]; then
+  ARR_YES=0
+else
+  ARR_YES=1
+  PROFILE_ARGS+=(--profile arr)
+fi
+
+if [[ "$(ask "Installare anche Lidarr (musica)? (s/N):")" =~ ^[sSyY] ]]; then
+  LIDARR_YES=1
+  PROFILE_ARGS+=(--profile lidarr)
+else
+  LIDARR_YES=0
+fi
+
+VPN_YES=0
+if [[ "$(ask "Far passare qBittorrent da una VPN (Gluetun)? (s/N):")" =~ ^[sSyY] ]]; then
+  VPN_YES=1
+  PROFILE_ARGS+=(--profile vpn)
+  echo "Provider supportati: https://github.com/qdm12/gluetun-wiki/tree/main/setup/providers"
+  VPN_SERVICE_PROVIDER=$(ask "Nome del provider VPN (es. nordvpn, mullvad, protonvpn):")
+  VPN_TYPE=$(ask "Tipo (wireguard/openvpn) [wireguard]:"); VPN_TYPE=${VPN_TYPE:-wireguard}
+  VPN_SERVER_COUNTRIES=$(ask "Paese/i server (invio per il default del provider):")
+  if [ "$VPN_TYPE" = "openvpn" ]; then
+    OPENVPN_USER=$(ask "Username OpenVPN:")
+    OPENVPN_PASSWORD=$(ask "Password OpenVPN:")
+    WIREGUARD_PRIVATE_KEY=""; WIREGUARD_ADDRESSES=""
+  else
+    WIREGUARD_PRIVATE_KEY=$(ask "Wireguard private key:")
+    WIREGUARD_ADDRESSES=$(ask "Wireguard addresses (es. 10.x.x.x/32):")
+    OPENVPN_USER=""; OPENVPN_PASSWORD=""
+  fi
+fi
+
+# La dashboard mostra solo i servizi che hai scelto di installare: toglie la
+# card di ciascun servizio non attivo invece di lasciarla li' a mostrare
+# "non raggiungibile" per sempre. Gluetun non ha una sua card (e' infrastruttura,
+# non un servizio da aprire nel browser).
+DASHBOARD_HTML="$STACK_DIR/dashboard/index.html"
+if [ "$ARR_YES" != "1" ]; then
+  for svc in Overseerr Radarr Sonarr Prowlarr Bazarr FlareSolverr; do
+    sed -i "/{ name: \"$svc\",/d" "$DASHBOARD_HTML"
+  done
+fi
+if [ "$LIDARR_YES" != "1" ]; then
+  sed -i '/{ name: "Lidarr",/d' "$DASHBOARD_HTML"
+fi
+
 # --- 6. docker-compose -------------------------------------------------------
 cp "$SCRIPT_DIR/docker-compose.yml" "$STACK_DIR/docker-compose.yml"
 
-# Dischi film extra (oltre al primo): docker-compose.yml monta solo /mnt/media,
-# quindi i mount aggiuntivi vanno in un override che compose unisce da solo.
+# qbittorrent dietro Gluetun condivide la rete del container gluetun: il nome
+# "qbittorrent" non risolve piu' sulla rete Docker (non ha una sua interfaccia),
+# quindi nginx deve puntare a "gluetun" invece che a "qbittorrent".
+if [ "$VPN_YES" = "1" ]; then
+  sed -i 's#http://qbittorrent:8080/#http://gluetun:8080/#' "$STACK_DIR/nginx/default.conf"
+fi
+
+# Dischi film extra (oltre al primo) e Gluetun: docker-compose.yml non li
+# prevede di default, quindi vanno in un override che compose unisce da solo.
 OVERRIDE="$STACK_DIR/docker-compose.override.yml"
 rm -f "$OVERRIDE"
-if [ "${#MEDIA_MOUNTS[@]}" -gt 1 ]; then
-  {
+{
+  OVERRIDE_HAS_CONTENT=0
+  if [ "${#MEDIA_MOUNTS[@]}" -gt 1 ]; then
+    OVERRIDE_HAS_CONTENT=1
     echo "services:"
-    for svc in qbittorrent radarr sonarr; do
+    for svc in qbittorrent radarr sonarr lidarr; do
       echo "  $svc:"
       echo "    volumes:"
       for i in $(seq 2 "${#MEDIA_MOUNTS[@]}"); do
@@ -212,9 +270,18 @@ if [ "${#MEDIA_MOUNTS[@]}" -gt 1 ]; then
     for i in $(seq 2 "${#MEDIA_MOUNTS[@]}"); do
       echo "      - ${MEDIA_MOUNTS[$((i-1))]}/movies:/movies$i"
     done
-  } > "$OVERRIDE"
-  c_ok "Dischi film extra collegati ai container (docker-compose.override.yml)"
-fi
+  fi
+  if [ "$VPN_YES" = "1" ]; then
+    [ "$OVERRIDE_HAS_CONTENT" = "1" ] || echo "services:"
+    echo "  qbittorrent:"
+    echo "    ports: !reset []"   # le porte restano solo su gluetun, non su qbittorrent
+    echo "    network_mode: \"service:gluetun\""
+    echo "    depends_on:"
+    echo "      gluetun:"
+    echo "        condition: service_started"
+  fi
+} > "$OVERRIDE"
+[ -s "$OVERRIDE" ] && c_ok "docker-compose.override.yml generato (dischi extra e/o VPN)" || rm -f "$OVERRIDE"
 
 echo
 echo "Facoltativo: collega subito Plex al tuo account."
@@ -225,25 +292,28 @@ PUID=$PUID
 PGID=$PGID
 TZ=$TZ_NAME
 PLEX_CLAIM=$PLEX_CLAIM
+VPN_SERVICE_PROVIDER=${VPN_SERVICE_PROVIDER:-}
+VPN_TYPE=${VPN_TYPE:-}
+VPN_SERVER_COUNTRIES=${VPN_SERVER_COUNTRIES:-}
+WIREGUARD_PRIVATE_KEY=${WIREGUARD_PRIVATE_KEY:-}
+WIREGUARD_ADDRESSES=${WIREGUARD_ADDRESSES:-}
+OPENVPN_USER=${OPENVPN_USER:-}
+OPENVPN_PASSWORD=${OPENVPN_PASSWORD:-}
 EOF
 chmod 600 "$STACK_DIR/.env"
-
-PROFILE_ARGS=()
-if [[ "$(ask "Installare anche Radarr + Sonarr + Prowlarr + FlareSolverr? (S/n):")" =~ ^[nN] ]]; then
-  :
-else
-  PROFILE_ARGS=(--profile arr)
-fi
 
 # Radarr/Sonarr/Prowlarr nascono con AuthenticationMethod=None + Required=Enabled:
 # una combinazione che li blocca fuori (login impossibile, nessun account esiste).
 # Rimuovendo la riga *prima del primo avvio* l'app mostra la pagina di creazione account.
 # Si tocca solo se il config.xml non esiste ancora, per non resettare un login gia' fatto.
 FRESH_ARR=()
-if [ ${#PROFILE_ARGS[@]} -gt 0 ]; then
+if [ "$ARR_YES" = "1" ]; then
   for app in radarr sonarr prowlarr; do
     [ -f "$FAST/docker/$app/config.xml" ] || FRESH_ARR+=("$app")
   done
+fi
+if [ "$LIDARR_YES" = "1" ] && [ ! -f "$FAST/docker/lidarr/config.xml" ]; then
+  FRESH_ARR+=("lidarr")
 fi
 
 c_info "Scarico e avvio i container (la prima volta ci vogliono qualche minuto)..."
@@ -263,16 +333,24 @@ if [ ${#FRESH_ARR[@]} -gt 0 ]; then
   done
 fi
 
-# --- 6b. Collegamenti automatici: qBittorrent <-> Radarr/Sonarr, Prowlarr -> app --
-if [ ${#PROFILE_ARGS[@]} -gt 0 ]; then
-  c_info "Collego qBittorrent a Radarr/Sonarr e Prowlarr alle app (via API)..."
+# --- 6b. Collegamenti automatici: qBittorrent <-> Radarr/Sonarr/Lidarr, Prowlarr -> app --
+if [ "$ARR_YES" = "1" ] || [ "$LIDARR_YES" = "1" ]; then
+  c_info "Collego qBittorrent a Radarr/Sonarr/Lidarr e Prowlarr alle app (via API)..."
   for _ in $(seq 1 30); do curl -sf -o /dev/null http://localhost:8080/ && break; sleep 2; done
 
-  # Radarr/Sonarr/Prowlarr rifiutano (400 Invalid Hostname) le richieste reciproche
-  # via nome container Docker finche' non e' in allowedHosts: senza questo fix
-  # Prowlarr non riesce a sincronizzare gli indexer dentro Radarr/Sonarr.
+  # Dietro Gluetun qBittorrent non ha un suo nome risolvibile sulla rete Docker
+  # (condivide quella di gluetun): le altre app vanno collegate a "gluetun".
+  QB_HOST="qbittorrent"
+  [ "$VPN_YES" = "1" ] && QB_HOST="gluetun"
+
+  # Radarr/Sonarr/Lidarr/Prowlarr rifiutano (400 Invalid Hostname) le richieste
+  # reciproche via nome container Docker finche' non e' in allowedHosts: senza
+  # questo fix Prowlarr non riesce a sincronizzare gli indexer dentro le app.
   RESTART_NEEDED=0
-  for entry in "prowlarr:9696:v1" "radarr:7878:v3" "sonarr:8989:v3"; do
+  ALLOWED_APPS=()
+  [ "$ARR_YES" = "1" ] && ALLOWED_APPS+=("prowlarr:9696:v1" "radarr:7878:v3" "sonarr:8989:v3")
+  [ "$LIDARR_YES" = "1" ] && ALLOWED_APPS+=("lidarr:8686:v1")
+  for entry in "${ALLOWED_APPS[@]}"; do
     app=${entry%%:*}; rest=${entry#*:}; port=${rest%%:*}; ver=${rest##*:}
     [ -f "$FAST/docker/$app/config.xml" ] || continue
     APP_KEY=$(grep -oP '(?<=<ApiKey>)[^<]+' "$FAST/docker/$app/config.xml" 2>/dev/null || true)
@@ -284,7 +362,7 @@ if [ ${#PROFILE_ARGS[@]} -gt 0 ]; then
 import json,sys
 c = json.load(sys.stdin)
 hosts = set(h.strip() for h in c.get('allowedHosts','').split(',') if h.strip())
-hosts.update(['mediaserver.local', 'radarr', 'sonarr', 'prowlarr'])
+hosts.update(['mediaserver.local', 'radarr', 'sonarr', 'lidarr', 'prowlarr'])
 c['allowedHosts'] = ','.join(sorted(hosts))
 print(json.dumps(c))
 " > "$HOST_JSON" 2>/dev/null || true
@@ -296,7 +374,7 @@ print(json.dumps(c))
     rm -f "$HOST_JSON"
   done
   # allowedHosts si applica solo al riavvio del servizio.
-  [ "$RESTART_NEEDED" = "1" ] && docker restart prowlarr radarr sonarr >/dev/null && sleep 5
+  [ "$RESTART_NEEDED" = "1" ] && docker restart prowlarr radarr sonarr lidarr >/dev/null 2>&1 && sleep 5
 
   if [ ! -f "$FAST/docker/qbittorrent/qBittorrent/qBittorrent.conf" ] || ! grep -q WebUI..Password_PBKDF2 "$FAST/docker/qbittorrent/qBittorrent/qBittorrent.conf" 2>/dev/null; then
     QB_PASS_FIXED=$(openssl rand -base64 18 | tr -dc 'A-Za-z0-9' | head -c20)
@@ -336,41 +414,47 @@ print(json.dumps(c))
       http://localhost:8080/api/v2/torrents/createCategory >/dev/null
     curl -s -b "$JAR" -X POST --data-urlencode "category=sonarr" --data-urlencode "savePath=/data/media/downloads/sonarr" \
       http://localhost:8080/api/v2/torrents/createCategory >/dev/null
+    curl -s -b "$JAR" -X POST --data-urlencode "category=lidarr" --data-urlencode "savePath=/data/media/downloads/lidarr" \
+      http://localhost:8080/api/v2/torrents/createCategory >/dev/null
     rm -f "$JAR"
 
-    for app in radarr sonarr; do
+    DL_APPS=()
+    [ "$ARR_YES" = "1" ] && DL_APPS+=(radarr sonarr)
+    [ "$LIDARR_YES" = "1" ] && DL_APPS+=(lidarr)
+    for app in "${DL_APPS[@]}"; do
       [ -f "$FAST/docker/$app/config.xml" ] || continue
       APP_KEY=$(grep -oP '(?<=<ApiKey>)[^<]+' "$FAST/docker/$app/config.xml" 2>/dev/null || true)
-      APP_PORT=7878; CAT_FIELD="movieCategory"; CAT_VAL="radarr"; ROOT_FOLDER="/data/media/movies"
+      APP_PORT=7878; APP_VER="v3"; CAT_FIELD="movieCategory"; CAT_VAL="radarr"; ROOT_FOLDER="/data/media/movies"
       [ "$app" = "sonarr" ] && APP_PORT=8989 && CAT_FIELD="tvCategory" && CAT_VAL="sonarr" && ROOT_FOLDER="/data/media/tv"
+      [ "$app" = "lidarr" ] && APP_PORT=8686 && APP_VER="v1" && CAT_FIELD="musicCategory" && CAT_VAL="lidarr" && ROOT_FOLDER="/data/media/music"
       [ -n "$APP_KEY" ] || continue
       APP_BASE="http://localhost:$APP_PORT/$app"
 
-      # Root folder: senza questa, "Add Movie/Series" da' errore "Root Folder Path must not be empty".
-      EXISTING_ROOT=$(curl -s -H "X-Api-Key: $APP_KEY" "$APP_BASE/api/v3/rootfolder" 2>/dev/null)
+      # Root folder: senza questa, "Add Movie/Series/Artist" da' errore "Root Folder Path must not be empty".
+      EXISTING_ROOT=$(curl -s -H "X-Api-Key: $APP_KEY" "$APP_BASE/api/$APP_VER/rootfolder" 2>/dev/null)
       [ "$EXISTING_ROOT" = "[]" ] && curl -s -X POST -H "X-Api-Key: $APP_KEY" -H "Content-Type: application/json" \
-        "$APP_BASE/api/v3/rootfolder" -d "{\"path\":\"$ROOT_FOLDER\"}" >/dev/null
+        "$APP_BASE/api/$APP_VER/rootfolder" -d "{\"path\":\"$ROOT_FOLDER\"}" >/dev/null
 
       # Hardlink invece di copia: l'import da qBittorrent non duplica i dati su disco
       # (funziona solo se download e libreria sono sullo stesso filesystem).
-      for _ in $(seq 1 30); do curl -sf -o /dev/null -H "X-Api-Key: $APP_KEY" "$APP_BASE/api/v3/config/mediamanagement" && break; sleep 2; done
+      for _ in $(seq 1 30); do curl -sf -o /dev/null -H "X-Api-Key: $APP_KEY" "$APP_BASE/api/$APP_VER/config/mediamanagement" && break; sleep 2; done
       MM_JSON=$(mktemp)
-      curl -s -H "X-Api-Key: $APP_KEY" "$APP_BASE/api/v3/config/mediamanagement" \
+      curl -s -H "X-Api-Key: $APP_KEY" "$APP_BASE/api/$APP_VER/config/mediamanagement" \
         | python3 -c "import json,sys; c=json.load(sys.stdin); c['copyUsingHardlinks']=True; print(json.dumps(c))" \
         > "$MM_JSON" 2>/dev/null || true
       [ -s "$MM_JSON" ] && curl -s -X PUT -H "X-Api-Key: $APP_KEY" -H "Content-Type: application/json" \
-        "$APP_BASE/api/v3/config/mediamanagement" -d @"$MM_JSON" >/dev/null
+        "$APP_BASE/api/$APP_VER/config/mediamanagement" -d @"$MM_JSON" >/dev/null
       rm -f "$MM_JSON"
 
-      EXISTING=$(curl -s -H "X-Api-Key: $APP_KEY" "$APP_BASE/api/v3/downloadclient" 2>/dev/null)
+      EXISTING=$(curl -s -H "X-Api-Key: $APP_KEY" "$APP_BASE/api/$APP_VER/downloadclient" 2>/dev/null)
       [ "$EXISTING" = "[]" ] || continue
       curl -s -X POST -H "X-Api-Key: $APP_KEY" -H "Content-Type: application/json" \
-        "$APP_BASE/api/v3/downloadclient" -d "{
+        "$APP_BASE/api/$APP_VER/downloadclient" -d "{
           \"enable\": true, \"protocol\": \"torrent\", \"priority\": 1,
           \"removeCompletedDownloads\": true, \"removeFailedDownloads\": true,
           \"name\": \"qBittorrent\", \"implementation\": \"QBittorrent\", \"configContract\": \"QBittorrentSettings\",
           \"fields\": [
-            {\"name\":\"host\",\"value\":\"qbittorrent\"}, {\"name\":\"port\",\"value\":8080},
+            {\"name\":\"host\",\"value\":\"$QB_HOST\"}, {\"name\":\"port\",\"value\":8080},
             {\"name\":\"useSsl\",\"value\":false}, {\"name\":\"username\",\"value\":\"admin\"},
             {\"name\":\"password\",\"value\":\"$QB_PASS_FIXED\"}, {\"name\":\"$CAT_FIELD\",\"value\":\"$CAT_VAL\"}
           ]}" >/dev/null
@@ -382,11 +466,14 @@ print(json.dumps(c))
     PROWLARR_BASE="http://localhost:9696/prowlarr"
     EXISTING_APPS=$(curl -s -H "X-Api-Key: $PROWLARR_KEY" "$PROWLARR_BASE/api/v1/applications" 2>/dev/null)
     if [ -n "$PROWLARR_KEY" ] && [ "$EXISTING_APPS" = "[]" ]; then
-      for app in radarr sonarr; do
+      PROWLARR_APPS=(radarr sonarr)
+      [ "$LIDARR_YES" = "1" ] && PROWLARR_APPS+=(lidarr)
+      for app in "${PROWLARR_APPS[@]}"; do
         [ -f "$FAST/docker/$app/config.xml" ] || continue
         APP_KEY=$(grep -oP '(?<=<ApiKey>)[^<]+' "$FAST/docker/$app/config.xml" 2>/dev/null || true)
         APP_PORT=7878; APP_NAME=Radarr; APP_CONTRACT=RadarrSettings
         [ "$app" = "sonarr" ] && APP_PORT=8989 && APP_NAME=Sonarr && APP_CONTRACT=SonarrSettings
+        [ "$app" = "lidarr" ] && APP_PORT=8686 && APP_NAME=Lidarr && APP_CONTRACT=LidarrSettings
         [ -n "$APP_KEY" ] || continue
         curl -s -X POST -H "X-Api-Key: $PROWLARR_KEY" -H "Content-Type: application/json" \
           "$PROWLARR_BASE/api/v1/applications" -d "{
@@ -627,8 +714,12 @@ echo "=================================================================="
 echo " Dashboard:     http://$IP/  (o http://mediaserver.local/)   utente: ${DASH_USER:-?}   password: ${DASH_PASS:-vedi $STACK_DIR/.env.credentials}"
 echo "                Stesso login per tutto quello che passa dal reverse proxy (sotto)."
 echo " Plex:          http://$IP:32400/web   (account plex.tv separato, non c'entra col login sopra)"
+if [ "$VPN_YES" = "1" ]; then
+echo " qBittorrent:   http://$IP/qbittorrent/   (traffico instradato dalla VPN via Gluetun)"
+else
 echo " qBittorrent:   http://$IP/qbittorrent/   (nessun login extra se apri da qui; su :8080 diretto serve ancora quello suo)"
-if [ ${#PROFILE_ARGS[@]} -gt 0 ]; then
+fi
+if [ "$ARR_YES" = "1" ]; then
 echo " Radarr:        http://$IP/radarr/     (nessun login extra)"
 echo " Sonarr:        http://$IP/sonarr/     (nessun login extra)"
 echo " Prowlarr:      http://$IP/prowlarr/   (nessun login extra; poi Indexers > Add Indexer)"
@@ -636,8 +727,13 @@ echo " Bazarr:        http://$IP/bazarr/     (nessun login extra; aggiungi un pr
 echo " Overseerr:     http://$IP:5055/       (primo accesso: wizard di setup nel browser, login con l'account Plex)"
 echo " FlareSolverr:  http://$IP:8191/       (per gli indexer protetti da Cloudflare come 1337x,"
 echo "                aggiungi il tag 'flaresolverr' all'indexer in Prowlarr, altrimenti non viene usato)"
-echo "                In ciascuno, in Allowed Hosts metti: mediaserver.local,$IP,radarr,sonarr,prowlarr"
-echo "                qBittorrent e' gia' collegato a Radarr/Sonarr, e Prowlarr e' gia' collegato a entrambi."
+fi
+if [ "$LIDARR_YES" = "1" ]; then
+echo " Lidarr:        http://$IP/lidarr/     (nessun login extra)"
+fi
+if [ "$ARR_YES" = "1" ] || [ "$LIDARR_YES" = "1" ]; then
+echo "                In ciascuno, in Allowed Hosts metti: mediaserver.local,$IP,radarr,sonarr,lidarr,prowlarr"
+echo "                qBittorrent e' gia' collegato alle app installate, e Prowlarr e' gia' collegato a tutte."
 echo "                Niente porte da ricordare: tutto passa dal reverse proxy nginx sulla porta 80."
 fi
 echo " File:          http://$IP/files/      (sfoglia/carica file nei dischi media)"

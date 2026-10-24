@@ -145,6 +145,49 @@ services:
     # percorsi assoluti), va sulla sua porta diretta come Plex. Il primo accesso
     # richiede il wizard di setup via browser (login con l'account Plex).
 
+  lidarr:
+    image: lscr.io/linuxserver/lidarr:latest
+    container_name: lidarr
+    profiles: ["lidarr"]
+    environment:
+      - PUID=${PUID}
+      - PGID=${PGID}
+      - TZ=${TZ}
+    volumes:
+      - /opt/mediaserver/data/docker/lidarr:/config
+      - /mnt/media:/data/media
+    ports:
+      - "8686:8686"
+    restart: unless-stopped
+
+  gluetun:
+    image: qmcgaw/gluetun:latest
+    container_name: gluetun
+    profiles: ["vpn"]
+    cap_add:
+      - NET_ADMIN
+    devices:
+      - /dev/net/tun:/dev/net/tun
+    environment:
+      - VPN_SERVICE_PROVIDER=${VPN_SERVICE_PROVIDER:-}
+      - VPN_TYPE=${VPN_TYPE:-wireguard}
+      - WIREGUARD_PRIVATE_KEY=${WIREGUARD_PRIVATE_KEY:-}
+      - WIREGUARD_ADDRESSES=${WIREGUARD_ADDRESSES:-}
+      - OPENVPN_USER=${OPENVPN_USER:-}
+      - OPENVPN_PASSWORD=${OPENVPN_PASSWORD:-}
+      - SERVER_COUNTRIES=${VPN_SERVER_COUNTRIES:-}
+    volumes:
+      - /opt/mediaserver/data/docker/gluetun:/gluetun
+    ports:
+      # Pubblicate qui, non su qbittorrent: quando il profilo "vpn" e' attivo
+      # qbittorrent condivide la rete di questo container (network_mode:
+      # service:gluetun in docker-compose.override.yml), quindi non ha piu'
+      # una propria rete su cui pubblicare porte.
+      - "8080:8080"
+      - "6881:6881"
+      - "6881:6881/udp"
+    restart: unless-stopped
+
   flaresolverr:
     image: ghcr.io/flaresolverr/flaresolverr:latest
     container_name: flaresolverr

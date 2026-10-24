@@ -1,5 +1,7 @@
 # Media Server
 
+🇮🇹 Italiano | [🇬🇧 English](README.en.md)
+
 Il tuo "Netflix privato": un server a casa che scarica film e serie TV e te li fa guardare da Plex, con una pagina per cercare e richiedere titoli senza dover capire nulla di informatica.
 
 ## Come si usa (nessuna competenza tecnica richiesta)
